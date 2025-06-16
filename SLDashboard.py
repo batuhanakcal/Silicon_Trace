@@ -34,6 +34,7 @@ else:
 # Store the original dataframe
 original_df = df.copy()
 
+# Date Picker Code
 # Creating a data card 
 col1, col2 = st.columns((2))
 
@@ -61,6 +62,7 @@ filtered_df = df.loc[mask]
 
 # Format the Year column to show only the year
 filtered_df['Year'] = filtered_df['Year'].dt.year
+# End of Dater Picker Code
 
 # Create sidebar filters
 st.sidebar.header("Filters")
@@ -113,8 +115,61 @@ st.dataframe(
     height=400,  # Fixed height in pixels
     use_container_width=True  # Use full width of the container
 )
+with col1:
+    # Display date range information
+    st.write(f"Data range: {startDate.year} to {endDate.year}")
 
-# Display date range information
-st.write(f"Data range: {startDate.year} to {endDate.year}")
+        # Display available columns
+        # st.write("Available columns:", filtered_df.columns.tolist())
 
+        # Create bar chart with the first numeric column as y-axis
+    numeric_columns = filtered_df.select_dtypes(include=['int64', 'float64']).columns
+    if len(numeric_columns) > 0:
+            # Let user select which numeric column to plot
+        selected_column = st.selectbox(
+            "Select column to plot:",
+            options=numeric_columns,
+            key="chart_column"
+        )
+            # Add a title to the chart
+        st.write(f"Bar Chart of {selected_column} by Year")
+            # Create the bar chart with the selected column
+        st.bar_chart(filtered_df, x='Year', y=selected_column)
+    else:
+        st.write("No numeric columns available for the bar chart")
 
+with col2:
+    # Get categorical columns for grouping
+    available_categories = [col for col in selected_columns if col in filtered_df.columns]
+    
+    if len(available_categories) > 0 and len(numeric_columns) > 0:
+        # Let user select category for grouping and numeric for values
+        category_col = st.selectbox(
+            "Select category for donut chart:",
+            options=available_categories,
+            key="donut_category"
+        )
+        
+        value_col = st.selectbox(
+            "Select value for donut chart:",
+            options=numeric_columns,
+            key="donut_value",
+            index=0  # Default to first numeric column
+        )
+        
+        # Group data by the selected category and sum the values
+        grouped_data = filtered_df.groupby(category_col)[value_col].sum().reset_index()
+
+        st.write (grouped_data.head())
+        
+        fig = px.pie(
+            grouped_data, 
+            values= value_col,
+            names=category_col,
+            hole=0.4, 
+            title=f"Donut Chart: {value_col} by {category_col}"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.write("Not enough data to create donut chart")
