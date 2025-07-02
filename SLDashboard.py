@@ -79,23 +79,33 @@ with st.expander(f"Charts"):
     # Date Picker Code
     # Creating a data card 
     col1, col2 = st.columns((2))
-
+    filtered_df = df.copy() # Ensure this exists in all cases 
     # Detect a column with dataes 
     date_col = None
     for col in df.columns:
+        if df[col].dtype in ['object', 'datetime64[ns]']: #Avoid numeric columns like "2020"
+            try:
+                converted = pd.to_datetime(df[col], errors = 'coerce', infer_datetime_format = True)
+                # Require at least 50% of values to be valid dates
+                if converted.notna().mean() > 0.5: #At least one valid datetime
+                    df[col] = converted
+                    date_col = col
+                    break
+            except Exception as e:
+                continue
+    # Fallback to 'Year' column if no proper date found
+    if date_col is None and 'Year' in df.columns:
         try:
-            converted = pd.to_datetime(df[col], errors = 'coerce')
-            if converted.notna().sum() > 0: #At least one valid datetime
-                date_col = col
-                df[col] = converted
-                break
-        except:
-            continue
-    if date_col is None:
-        st.warning("No date column detected. Skipping date filtering")
-        filtred_df = df.copy()
-    else:
-        st.markdown(f"**Date column detected: ** '{date_col}")
+            df['Year'] = pd.to_datetime(df['Year'], format = '%Y', errors = 'coerce')
+            if df['Year'].notna().sum() > 0:
+                date_col = 'Year'
+                df = df.dropna(subset = ['Year'])
+                st.markdown("**Falback to 'Year' column for date filtering")
+        except Exception: 
+            pass
+    if date_col:
+
+        st.markdown(f"**Date column detected: ** `{date_col}`")
 
         # Drop rows where date parsing failed 
         df = df.dropna(subset = [date_col])
@@ -113,7 +123,9 @@ with st.expander(f"Charts"):
         # Filter the dataframe based on the selected date 
         mask = (df[date_col].dt.date >= date1) & (df[date_col].dt.date <= date2)
         filtered_df = df.loc[mask]
-        
+    else:
+        st.warning("No valid date column detected. Skipping date filtering.")
+
         # Detecting categorical columns 
     categorical_cols = [col for col in df.columns if df[col].nunique() < 20 and df[col].dtype == 'object']
 
@@ -137,6 +149,7 @@ with st.expander(f"Charts"):
         if selection: #if any selection was made for this column
             filtered_df = filtered_df[filtered_df[col].isin(selection)]
     # Detecting Numerical Columns 
+    
     numeric_columns = filtered_df.select_dtypes(include=['int64', 'float64']).columns
 
     # Add an empty option at the top of the list
@@ -227,25 +240,26 @@ with st.expander(f"Charts"):
 
     with col1:
         if selected_numeric_col != "-- Select a numeric column --":
-            if 'Year' in filtered_df.columns:
-            #If ear was converted to int (after filtering), convert it back t        # If Year was converted to int (after filtering), convert it back to datetime for plotting
-            # o data time
-                if filtered_df['Year'].dtype != 'datetime64[ns]':
-                    filtered_df['Year'] = pd.to_datetime(filtered_df['Year'], format = '%Y', errors ='coerce')
-                # Drop rows where Year conversion failed
-                filtered_df = filtered_df.dropna(subset = ['Year'])
+        
+            # if 'Year' in filtered_df.columns:
+            if date_col and date_col in filtered_df.columns:
+                if filtered_df[date_col].dtype != 'datetime64[ns]':
+                    filtered_df[date_col] = pd.to_datetime(filtered_df[date_col], errors = 'coerce')
+
+                    filtered_df = filtered_df.dropna(subset = [date_col])
+
 
                 # Aggregating the selected numeric column by year 
                 time_series_data = (
                     filtered_df
-                    .groupby('Year')[selected_numeric_col]
+                    .groupby(date_col)[selected_numeric_col]
                     .sum()
                     .reset_index()
                 )
 
                 fig_time = px.line(
                     time_series_data,
-                    x = 'Year',
+                    x = date_col,
                     y = selected_numeric_col,
                     title = f"Time Series Chart for {selected_numeric_col} Over Years"
                 )
