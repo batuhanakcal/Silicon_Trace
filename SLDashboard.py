@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd 
 import plotly.express as px 
 import os 
+import plotly.graph_objects as go
+import colorsys
 import warnings
 warnings.filterwarnings('ignore') # This helps with telling python to ignore warnings
 
@@ -15,9 +17,46 @@ st.title(":factory: SiliconTrace")
 st.markdown(
     '<style>div.block-container{padding-top: 3rem;}</style>', unsafe_allow_html = True
 )
+# Placing the scenario modelling Guage
+gauge_value = st.session_state.get("adjustment_slider", 0) 
+
+# Creating and displaying the guage at the top center 
+st.markdown("<h3 style = 'text_align: center;'>Scenario Adjustment</h3>", unsafe_allow_html = True)
+# creating a guage with smooth color gradient from red to green
+def red_to_green_gradient(n):
+    colors = []
+    for i  in range(n):
+        ratio = i/(n-1)
+        r, g, b = colorsys.hsv_to_rgb(0.33 * ratio, 1,1) #HSV hue from red (0) to green (0.33)
+        color_str = f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})"
+        colors.append({'range': [i * (100/n), (i+1)*(100 / n)], 'color': color_str})
+    return colors
+
+fig_guage = go.Figure(go.Indicator(
+    mode = "gauge+number",
+    value = gauge_value,
+    title = {'text': f"Emission Reduction Target %"},
+    gauge = {
+        'axis': {'range': [0,100]},
+        'bar': {'color': "rgba(0,0,0,0)"},
+        'steps': red_to_green_gradient(1000), #The more the steps the smoother the gradient 
+        'threshold':{
+            'line': {'color': "black", 'width': 6},
+            'thickness': 1.0,
+            'value': gauge_value
+        }
+    }
+))
+# Setting the size of the Guage 
+fig_guage.update_layout(
+    width = 500,
+    height = 250,
+    margin = dict(t=40, b = 10, l = 10, r = 10)
+)
+st.plotly_chart(fig_guage, use_container_width = True)
 
 # A Button for users to upload data 
-fl = st.file_uploader(":file_folder: upload a file", type = (["csv", "txt", "xlsx","xls"]))
+fl = st.sidebar.file_uploader(":file_folder: upload a file", type = (["csv", "txt", "xlsx","xls"]))
 if fl is not None: 
     filename = fl.name
     st.write(filename)
@@ -33,143 +72,320 @@ else:
 
 # Store the original dataframe
 original_df = df.copy()
+with st.expander(f"Raw Data {filename}"):
+    st.write(df)
+with st.expander(f"Charts"):
+    # Date Picker Code
+    # Creating a data card 
+    col1, col2 = st.columns((2))
 
-# Date Picker Code
-# Creating a data card 
-col1, col2 = st.columns((2))
+    # Check for Year column
+    if 'Year' not in df.columns:
+        st.error("Missing required column: Year")
+        st.stop()
 
-# Check for Year column
-if 'Year' not in df.columns:
-    st.error("Missing required column: Year")
-    st.stop()
+    # Convert Year to datetime if it's not already
+    df['Year'] = pd.to_datetime(df['Year'], format='%Y')
 
-# Convert Year to datetime if it's not already
-df['Year'] = pd.to_datetime(df['Year'], format='%Y')
+    # Get the actual min and max dates from your data
+    startDate = df['Year'].min()
+    endDate = df['Year'].max()
 
-# Get the actual min and max dates from your data
-startDate = df['Year'].min()
-endDate = df['Year'].max()
+    # Display date pickers with your data's date range
+    with col1:
+        date1 = st.date_input('Start Date', startDate, min_value=startDate, max_value=endDate)
+    with col2:
+        date2 = st.date_input('End Date', endDate, min_value=startDate, max_value=endDate)
 
-# Display date pickers with your data's date range
-with col1:
-    date1 = st.date_input('Start Date', startDate, min_value=startDate, max_value=endDate)
-with col2:
-    date2 = st.date_input('End Date', endDate, min_value=startDate, max_value=endDate)
+    # Filter the dataframe based on selected dates
+    mask = (df['Year'].dt.date >= date1) & (df['Year'].dt.date <= date2)
+    filtered_df = df.loc[mask]
 
-# Filter the dataframe based on selected dates
-mask = (df['Year'].dt.date >= date1) & (df['Year'].dt.date <= date2)
-filtered_df = df.loc[mask]
 
-# Format the Year column to show only the year
-filtered_df['Year'] = filtered_df['Year'].dt.year
-# End of Dater Picker Code
 
-# Create sidebar filters
-st.sidebar.header("Filters")
+    # Format the Year column to show only the year
+    filtered_df['Year'] = filtered_df['Year'].dt.year
+    # End of Dater Picker Code
 
-# Function to identify categorical columns
-def is_categorical(series):
-    # Check if the column has relatively few unique values compared to its length
-    n_unique = series.nunique()
-    n_total = len(series)
-    return n_unique < n_total * 0.5  # If unique values are less than 50% of total, consider it categorical
 
-# Get categorical columns
-categorical_columns = [col for col in filtered_df.columns if is_categorical(filtered_df[col])]
+        # Detecting categorical columns 
+    categorical_cols = [col for col in df.columns if df[col].nunique() < 20 and df[col].dtype == 'object']
 
-# Let user select which columns to filter by
-st.sidebar.subheader("Select Columns to Filter")
-selected_columns = st.sidebar.multiselect(
-    "Choose columns to filter by:",
-    options=categorical_columns,
-    default=categorical_columns[:2] if len(categorical_columns) > 0 else []
-)
+    # Create sidebar filters
+    st.sidebar.header("Filters")
 
-# Create filters for selected columns
-for column in selected_columns:
-    st.sidebar.subheader(f"Filter by {column}")
-    selected_values = st.sidebar.multiselect(
-        f"Select {column}:",
-        options=sorted(filtered_df[column].unique()),
-        key=f"filter_{column}"
-    )
-    if selected_values:
-        filtered_df = filtered_df[filtered_df[column].isin(selected_values)]
+    # Initializing filtered data frame
+    # filtered_df = df.copy()
 
-# Display the filtered data in a scrollable container
-st.write("Filtered Data:")
+    # Dictionary to store filtered selections
+    filtered_selection = {}
 
-# Create a container with fixed height and scrolling
-st.markdown("""
-    <style>
-        .dataframe-container {
-            height: 400px;
-            overflow-y: scroll;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-# Display the dataframe in the scrollable container
-st.dataframe(
-    filtered_df,
-    height=400,  # Fixed height in pixels
-    use_container_width=True  # Use full width of the container
-)
-with col1:
-    # Display date range information
-    st.write(f"Data range: {startDate.year} to {endDate.year}")
-
-        # Display available columns
-        # st.write("Available columns:", filtered_df.columns.tolist())
-
-        # Create bar chart with the first numeric column as y-axis
+    # Creating filters for each categorical columns 
+    for col in categorical_cols:
+        filtered_selection[col] = st.sidebar.multiselect(
+            f"Select {col}",
+            options = df[col].unique()
+        )
+    # Apply filters Sequentially 
+    for col, selection in filtered_selection.items():
+        if selection: #if any selection was made for this column
+            filtered_df = filtered_df[filtered_df[col].isin(selection)]
+    # Detecting Numerical Columns 
     numeric_columns = filtered_df.select_dtypes(include=['int64', 'float64']).columns
-    if len(numeric_columns) > 0:
-            # Let user select which numeric column to plot
-        selected_column = st.selectbox(
-            "Select column to plot:",
-            options=numeric_columns,
-            key="chart_column"
-        )
-            # Add a title to the chart
-        st.write(f"Bar Chart of {selected_column} by Year")
-            # Create the bar chart with the selected column
-        st.bar_chart(filtered_df, x='Year', y=selected_column)
-    else:
-        st.write("No numeric columns available for the bar chart")
 
-with col2:
-    # Get categorical columns for grouping
-    available_categories = [col for col in selected_columns if col in filtered_df.columns]
+    # Add an empty option at the top of the list
+    numeric_column_options = ["-- Select a numeric column --"] + list(numeric_columns)
+
+    # Sidebar: Let user select numeric column (optional)
+    st.sidebar.subheader("Select a Numeric Column to Display")
+    selected_numeric_col = st.sidebar.selectbox("Choose a numeric column", numeric_column_options)
+
+    # Adding a slider for Scenario Adjustment Gauge 
+    st.sidebar.markdown("----") #This is a horizontal line to separate the slider from other filters
+    st.sidebar.subheader("Scenario Adjustment Slider")
+    adjustment_slider = st.sidebar.slider(
+        "Adjustment (%)",
+        min_value = 0,
+        max_value = 100,
+        value = 0,
+        step = 1,
+        key = "adjustment_slider" #Store value in session state
+    )
+    if selected_numeric_col != "-- Select a numeric column --":
+        adjustment_factor = (100 - st.session_state["adjustment_slider"])/100
+        filtered_df["Adjusted_Value"] = filtered_df[selected_numeric_col] * adjustment_factor
+
+    # Check if the user has selected an actual numeric column
+    # with st.expander("Filtered Data"):
+    if selected_numeric_col != "-- Select a numeric column --":
+    # Get only the categorical columns that were filtered + selected numeric column
+        active_cat_filters = [col for col, values in filtered_selection.items() if values]
+        columns_to_display = active_cat_filters + [selected_numeric_col]
+
+        # Display only those columns
+        display_df = filtered_df[columns_to_display]
+        # st.write(f"Filtered Data: {selected_numeric_col} and associated categories", display_df)
+    # ---- Charts -----
+
+    # # Creating a donut chart
+    with col1:
+
+        # Only create chart if a numeric column has been selected
+        if selected_numeric_col != "-- Select a numeric column --":
+            # Ensure at least one categorical column is present
+            if active_cat_filters:
+                group_col = active_cat_filters[0]  # Use the first filtered categorical column as category
+                chart_data = (
+                    filtered_df
+                    .groupby(group_col)[selected_numeric_col]
+                    .sum()
+                    .reset_index()
+                )
+
+                # Create the donut chart
+                fig = px.pie(
+                    chart_data,
+                    names=group_col,
+                    values=selected_numeric_col,
+                    hole=0.4,  # This makes it a donut chart
+                    title=f"{selected_numeric_col} Distribution by {group_col}"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            else:
+                st.info("Please apply at least one categorical filter to generate the chart.")
+    with col2:
+        if selected_numeric_col != "-- Select a numeric column --":
+            # Ensure at least one categorical column is present
+            if active_cat_filters:
+                group_col = active_cat_filters[0] # Tells the program to use the first categorical filter
+                bargraph_data = (
+                    filtered_df
+                    .groupby(group_col)[selected_numeric_col]
+                    .sum()
+                    .reset_index()
+                )
+
+                # Creating the bar graph
+                fig_bar = px.bar(
+                    bargraph_data,
+                    x = group_col,
+                    y = selected_numeric_col,
+                    title = f"{selected_numeric_col} by {group_col}",
+                    labels = {group_col: group_col, selected_numeric_col: f"Sum of {selected_numeric_col}"},
+                    text_auto = True
+                )
+                st.plotly_chart(fig_bar, use_container_width = True)
+            else:
+                st.info("")
+
+    with col1:
+        if selected_numeric_col != "-- Select a numeric column --":
+            if 'Year' in filtered_df.columns:
+            #If ear was converted to int (after filtering), convert it back t        # If Year was converted to int (after filtering), convert it back to datetime for plotting
+            # o data time
+                if filtered_df['Year'].dtype != 'datetime64[ns]':
+                    filtered_df['Year'] = pd.to_datetime(filtered_df['Year'], format = '%Y', errors ='coerce')
+                # Drop rows where Year conversion failed
+                filtered_df = filtered_df.dropna(subset = ['Year'])
+
+                # Aggregating the selected numeric column by year 
+                time_series_data = (
+                    filtered_df
+                    .groupby('Year')[selected_numeric_col]
+                    .sum()
+                    .reset_index()
+                )
+
+                fig_time = px.line(
+                    time_series_data,
+                    x = 'Year',
+                    y = selected_numeric_col,
+                    title = f"Time Series Chart for {selected_numeric_col} Over Years"
+                )
+                st.plotly_chart(fig_time, use_container_width = True)
+            else:
+                st.warning("The 'Year' column is missing from the filtered data.")
+    with col2: 
+        if selected_numeric_col != "-- Select a numeric column --":
+            if active_cat_filters:
+                group_col = active_cat_filters[0]
+                treemap_data = (
+                    filtered_df
+                    .groupby(group_col)[selected_numeric_col]
+                    .sum()
+                    .reset_index()
+                )
+
+                fig_tree = px.treemap(
+                    treemap_data,
+                    path = [group_col],
+                    values = selected_numeric_col,
+                    title = f"Treemap of {selected_numeric_col} by {group_col}"
+                )
+                st.plotly_chart(fig_tree, use_container_width = True)
+            else:
+                st.write()
+    # with col1:
+    if selected_numeric_col != "-- Select a numeric column --":
+        if len(active_cat_filters) >= 2:
+            row_cat = active_cat_filters[0]  #x- axis
+            col_cat = active_cat_filters[1] #y-axis
+
+        #Pivot data for form a matrix for the hit map 
+            heatmap_data = (
+                filtered_df
+                .groupby([row_cat, col_cat])[selected_numeric_col]
+                .sum()
+                .reset_index()
+                .pivot(index =col_cat, columns = row_cat, values = selected_numeric_col)
+            )
+
+            fig_heat = px.imshow(
+                heatmap_data,
+                text_auto = True,
+                color_continuous_scale = "sunset",
+                aspect = "auto",
+                title = f"Heatmap of {selected_numeric_col} by {row_cat} and {col_cat}"
+            )
+            st.plotly_chart(fig_heat, use_container_width = True)
+        else:
+            st.info("Apply at least two categorical filters to generate heat map")
+
+    if selected_numeric_col != "-- Select a numeric column --" and "Location" in active_cat_filters:
+        try: 
+            # Group data by country
+            map_data = (
+
+                filtered_df
+                .groupby("Location")[selected_numeric_col]
+                .sum()
+                .reset_index()
+            )
+
+            fig_map = px.choropleth(
+                map_data, 
+                locations = "Location",
+                locationmode = "country names",
+                color = selected_numeric_col,
+                color_continuous_scale = "Viridis",
+                title = f"{selected_numeric_col} by country",
+            )
+            st.plotly_chart(fig_map, use_container_width = True)
+        except Exception as e:
+            st.warning(f"Could not render map {e}")
+    else:
+            st.info("To display a world map, filter by 'Location' and select a numeric column.")
+
+
+    # ---- End of Charts -----
+with st.expander("Filtered Data"):
+    if selected_numeric_col != "-- Select a numeric column --":
     
-    if len(available_categories) > 0 and len(numeric_columns) > 0:
-        # Let user select category for grouping and numeric for values
-        category_col = st.selectbox(
-            "Select category for donut chart:",
-            options=available_categories,
-            key="donut_category"
-        )
-        
-        value_col = st.selectbox(
-            "Select value for donut chart:",
-            options=numeric_columns,
-            key="donut_value",
-            index=0  # Default to first numeric column
-        )
-        
-        # Group data by the selected category and sum the values
-        grouped_data = filtered_df.groupby(category_col)[value_col].sum().reset_index()
+# Get only the categorical columns that were filtered + selected numeric column
+        active_cat_filters = [col for col, values in filtered_selection.items() if values]
+        columns_to_display = active_cat_filters + [selected_numeric_col]
 
-        st.write (grouped_data.head())
+    # Display only those columns
+        display_df = filtered_df[columns_to_display]
+        st.write(f"Filtered Data: {selected_numeric_col} and associated categories", display_df)
+
+with st.expander(f"{selected_numeric_col} targets: "):
+    if selected_numeric_col != "-- Select a numeric column --":
+
+        # Only create a pivot table if atleast one categorical filter is active 
+        if active_cat_filters:
+            pivot_index = active_cat_filters[0] #Use the first selected categorical filter 
+            pivot_table = filtered_df.pivot_table(
+                index = pivot_index,
+                values = "Adjusted_Value",
+                aggfunc = "sum"
+            ).reset_index()
+
+            st.subheader("Scenario Model Pivot Table")
+            st.dataframe(pivot_table, use_container_width = True)
+        else:
+            st.info("Please select at least one categorical filter to display the pivot table")
+
+
+
+
+# st.write(filtered_df)
         
-        fig = px.pie(
-            grouped_data, 
-            values= value_col,
-            names=category_col,
-            hole=0.4, 
-            title=f"Donut Chart: {value_col} by {category_col}"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.write("Not enough data to create donut chart")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
