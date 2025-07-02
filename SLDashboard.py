@@ -10,6 +10,7 @@ warnings.filterwarnings('ignore') # This helps with telling python to ignore war
 # Setting the page layout
 st.set_page_config(page_title ="SiliconTrace", page_icon = ":factory",layout = "wide")
 
+
 # Setting the title of the web app
 st.title(":factory: SiliconTrace")
 
@@ -79,35 +80,40 @@ with st.expander(f"Charts"):
     # Creating a data card 
     col1, col2 = st.columns((2))
 
-    # Check for Year column
-    if 'Year' not in df.columns:
-        st.error("Missing required column: Year")
-        st.stop()
+    # Detect a column with dataes 
+    date_col = None
+    for col in df.columns:
+        try:
+            converted = pd.to_datetime(df[col], errors = 'coerce')
+            if converted.notna().sum() > 0: #At least one valid datetime
+                date_col = col
+                df[col] = converted
+                break
+        except:
+            continue
+    if date_col is None:
+        st.warning("No date column detected. Skipping date filtering")
+        filtred_df = df.copy()
+    else:
+        st.markdown(f"**Date column detected: ** '{date_col}")
 
-    # Convert Year to datetime if it's not already
-    df['Year'] = pd.to_datetime(df['Year'], format='%Y')
+        # Drop rows where date parsing failed 
+        df = df.dropna(subset = [date_col])
 
-    # Get the actual min and max dates from your data
-    startDate = df['Year'].min()
-    endDate = df['Year'].max()
+        # Get the actual min and max dates from the data
+        startDate = df[date_col].min().date()
+        endDate = df[date_col].max().date()
 
-    # Display date pickers with your data's date range
-    with col1:
-        date1 = st.date_input('Start Date', startDate, min_value=startDate, max_value=endDate)
-    with col2:
-        date2 = st.date_input('End Date', endDate, min_value=startDate, max_value=endDate)
-
-    # Filter the dataframe based on selected dates
-    mask = (df['Year'].dt.date >= date1) & (df['Year'].dt.date <= date2)
-    filtered_df = df.loc[mask]
-
-
-
-    # Format the Year column to show only the year
-    filtered_df['Year'] = filtered_df['Year'].dt.year
-    # End of Dater Picker Code
-
-
+        # Display date pickers with the data's date range 
+        with col1: 
+            date1 = st.date_input('Start Date', startDate, min_value = startDate, max_value = endDate)
+        with col2: 
+            date2 = st.date_input('End Date', endDate, min_value = startDate, max_value = endDate)
+        
+        # Filter the dataframe based on the selected date 
+        mask = (df[date_col].dt.date >= date1) & (df[date_col].dt.date <= date2)
+        filtered_df = df.loc[mask]
+        
         # Detecting categorical columns 
     categorical_cols = [col for col in df.columns if df[col].nunique() < 20 and df[col].dtype == 'object']
 
