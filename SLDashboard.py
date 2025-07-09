@@ -68,8 +68,7 @@ else:
     if os.path.exists(default_file):
         df = pd.read_csv(default_file, encoding = "ISO-8859-1")
     else:
-        st.error(f"Please upload your emissions data file or download and upload sample .csv Emissions data from this repository: 
-           https://github.com/batuhanakcal/Silicon_Trace.")
+        st.error(f"Please upload your emissions data file or download and upload sample .csv Emissions data from this repository:https://github.com/batuhanakcal/Silicon_Trace.")
         st.stop()
 
 # Store the original dataframe
