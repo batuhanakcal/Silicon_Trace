@@ -64,7 +64,7 @@ if fl is not None:
     df = pd.read_csv(fl, encoding = "ISO-8859-1")
 else:
     # Use absolute path for the default file    
-default_file = ""
+    default_file = ""
     if os.path.exists(default_file):
         df = pd.read_csv(default_file, encoding = "ISO-8859-1")
     else:
