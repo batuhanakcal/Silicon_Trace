@@ -63,12 +63,13 @@ if fl is not None:
     st.write(filename)
     df = pd.read_csv(fl, encoding = "ISO-8859-1")
 else:
-    # Use absolute path for the default file
-    default_file = ""
+    # Use absolute path for the default file    
+default_file = ""
     if os.path.exists(default_file):
         df = pd.read_csv(default_file, encoding = "ISO-8859-1")
     else:
-        st.error(f"Please upload a file or ensure {default_file} exists.")
+        st.error(f"Please upload your emissions data file or download and upload sample .csv Emissions data from this repository: 
+https://github.com/batuhanakcal/Silicon_Trace.")
         st.stop()
 
 # Store the original dataframe
